@@ -10,3 +10,8 @@ all:
 	iverilog test_adder.v
 	./a.out
 	echo '' > adder.v
+	@echo 'Now testing: Multiplier'
+	cat multiplier.v > adder.v
+	iverilog test_multiplier.v
+	./a.out
+	echo '' > adder.v

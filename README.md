@@ -380,3 +380,382 @@ over:
 	end
 ```
 
+# 乘法器
+
+针对乘法运算的优化，主要集中在减少部分积的数量和减少加法带来的延时。
+
+以 1101 * 1001 为例，可以看到产生的四个部分积中只有两个是非零值，四个部分积的相加可以简化成两个非零部分积相加，减少了非零部分积的个数。
+
+如果乘数是 01111110 ，存在 6 个 1 ，如果不做任何变换，将产生 6 个非零部分积，但是把 01111110 = 10000000 - 00000010 表示，相当于只有两个非零部分积相加。或者我们直接把 01111110 表示成 100000-10 。
+
+来看下面的通用表现形式：
+$$
+y = -2^{n-1} y_{n-1}+2^{n-2} y_{n-2}+\cdots+2^{2} y_{2}+2 y_{1}+y_0+y_{-1},\ \ \ \ \ \ \ \  y_{-1}=0
+$$
+可以看成任意有符号二进制数的补码表现形式，多项式最高位为符号位， $y_{-1}$ 为附加项，定义为零，做变换
+$$
+\begin{aligned}
+y &= -2^{n-1} y_{n-1}+2^{n-2} y_{n-2}+\cdots+2^{2} y_{2}+2 y_{1}+y_0+y_{-1}\\
+&=2^{n-1}(-y_{n-1}+y_{n-2})+2^{n-2}(-y_{n-2}+y_{n-3})+\cdots+2(-y_{1}+y_{0})+(-y_{0}+y_{-1})
+\end{aligned}
+$$
+观察多项式的每一项可知，相邻的两位的 1 会抵消为 0 ，如果原二进制数中存在一连串的 1 ，则最低位 1 变换成 -1 ，最高位 1 的上一位 0 变换为 1 ，二者之间的 1 全部变成 0 。称为**booth编码**。但上述变换并不能在硬件乘法器电路中起到真正的优化作用，因为多项式的项数并没有变化，所以在电路设计中，一般采用的是改进的booth编码，达到真正的减少部分积的个数，从而减少累加器个数的目的。
+$$
+\begin{aligned}
+y &= -2^{n-1} y_{n-1}+2^{n-2} y_{n-2}+\cdots+2^{2} y_{2}+2 y_{1}+y_0+y_{-1}\\
+&= 2^{n-2}(-2y_{n-1}+y_{n-2}+y_{n-3})+2^{n-4}(-2y_{n-3}+y_{n-4}+y_{n-5})+\cdots+2^2(-2y_3+y_2+y_1)+(-2y_1+y_0+y_{-1})
+\end{aligned}
+$$
+多项式的项数变成了原来的一半。原二进制从最低有效位开始，以三位为一组（第一组最低位需要补一个附加位 $y_{-1}=0$ ），相邻组之间重叠一位，组成新的多项式因子。
+
+组成多项式因子的每连续三位之间的关系是完全相同的，二进制中每一位的数值非 0 即 1 ，因此可以列出相邻三位所有取值组合
+
+| $x_{2i+1}$ | $x_{2i}$ | $x_{2i-1}$ | $PP_i$ |
+| :--------: | :------: | :--------: | :----: |
+|     0      |    0     |     0      |   0    |
+|     0      |    0     |     1      |   Y    |
+|     0      |    1     |     0      |   Y    |
+|     0      |    1     |     1      |   2Y   |
+|     1      |    0     |     0      |  -2Y   |
+|     1      |    0     |     1      |   -Y   |
+|     1      |    1     |     0      |   -Y   |
+|     1      |    1     |     1      |   0    |
+
+作为改进型booth编码中最基础的一种，它被称为基 4 booth 编码，可以看做是将乘数转化为四进制表达。
+
+<style>
+  table {
+    border-collapse: collapse;
+  }
+  td {
+    height: 20px;
+    padding: 2px;
+  }
+</style>
+<table>
+<tr> 
+	<td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+	<td style="background-color: #ff0000;">$</td> 
+    <td style="background-color: #ff0000;">$</td> 
+    <td style="background-color: #ff0000;">$</td> 
+    <td style="background-color: #ff0000;">$</td> 
+    <td style="background-color: #ffff00;">17</td>
+    <td style="background-color: #ffff00;">16</td> 
+    <td style="background-color: #ffff00;">15</td> 
+    <td style="background-color: #ffff00;">14</td> 
+    <td style="background-color: #ffff00;">13</td> 
+    <td style="background-color: #ffff00;">12</td> 
+    <td style="background-color: #ffff00;">11</td> 
+    <td style="background-color: #ffff00;">10</td> 
+    <td style="background-color: #ffff00;">9</td> 
+    <td style="background-color: #ffff00;">8</td> 
+    <td style="background-color: #ffff00;">7</td> 
+    <td style="background-color: #ffff00;">6</td> 
+    <td style="background-color: #ffff00;">5</td> 
+    <td style="background-color: #ffff00;">4</td> 
+    <td style="background-color: #ffff00;">3</td> 
+    <td style="background-color: #ffff00;">2</td> 
+    <td style="background-color: #ffff00;">1</td>
+    <td style="background-color: #ffff00;">0</td>
+    <td></td>
+    <td>PP1</td>
+</tr>
+<tr>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+	<td style="background-color: #ff0000;">$</td> 
+    <td style="background-color: #ff0000;">$</td> 
+    <td style="background-color: #ffff00;">17</td>
+    <td style="background-color: #ffff00;">16</td> 
+    <td style="background-color: #ffff00;">15</td> 
+    <td style="background-color: #ffff00;">14</td> 
+    <td style="background-color: #ffff00;">13</td> 
+    <td style="background-color: #ffff00;">12</td> 
+    <td style="background-color: #ffff00;">11</td> 
+    <td style="background-color: #ffff00;">10</td> 
+    <td style="background-color: #ffff00;">9</td> 
+    <td style="background-color: #ffff00;">8</td> 
+    <td style="background-color: #ffff00;">7</td> 
+    <td style="background-color: #ffff00;">6</td> 
+    <td style="background-color: #ffff00;">5</td> 
+    <td style="background-color: #ffff00;">4</td> 
+    <td style="background-color: #ffff00;">3</td> 
+    <td style="background-color: #ffff00;">2</td> 
+    <td style="background-color: #ffff00;">1</td>
+    <td style="background-color: #ffff00;">0</td>
+	<td style="background-color: #a0a0a0;"></td>
+	<td style="background-color: #a0a0a0;"></td>
+    <td></td>
+    <td>PP2</td>
+</tr>
+<tr>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td style="background-color: #ffff00;">17</td>
+    <td style="background-color: #ffff00;">16</td> 
+    <td style="background-color: #ffff00;">15</td> 
+    <td style="background-color: #ffff00;">14</td> 
+    <td style="background-color: #ffff00;">13</td> 
+    <td style="background-color: #ffff00;">12</td> 
+    <td style="background-color: #ffff00;">11</td> 
+    <td style="background-color: #ffff00;">10</td> 
+    <td style="background-color: #ffff00;">9</td> 
+    <td style="background-color: #ffff00;">8</td> 
+    <td style="background-color: #ffff00;">7</td> 
+    <td style="background-color: #ffff00;">6</td> 
+    <td style="background-color: #ffff00;">5</td> 
+    <td style="background-color: #ffff00;">4</td> 
+    <td style="background-color: #ffff00;">3</td> 
+    <td style="background-color: #ffff00;">2</td> 
+    <td style="background-color: #ffff00;">1</td>
+    <td style="background-color: #ffff00;">0</td>
+	<td style="background-color: #a0a0a0;"></td>
+	<td style="background-color: #a0a0a0;"></td>
+	<td style="background-color: #a0a0a0;"></td>
+	<td style="background-color: #a0a0a0;"></td>
+    <td></td>
+    <td>PP3</td>
+</tr>
+<tr>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td style="background-color: #ff0000;">$</td>
+    <td style="background-color: #ff0000;">$</td>
+    <td style="background-color: #ff0000;">$</td>
+    <td style="background-color: #ff0000;">$</td>
+    <td style="background-color: #00ff00;">17</td>
+    <td style="background-color: #00ff00;">16</td> 
+    <td style="background-color: #00ff00;">15</td> 
+    <td style="background-color: #00ff00;">14</td> 
+    <td style="background-color: #00ff00;">13</td> 
+    <td style="background-color: #00ff00;">12</td> 
+    <td style="background-color: #00ff00;">11</td> 
+    <td style="background-color: #00ff00;">10</td> 
+    <td style="background-color: #00ff00;">9</td> 
+    <td style="background-color: #00ff00;">8</td> 
+    <td style="background-color: #00ff00;">7</td> 
+    <td style="background-color: #00ff00;">6</td> 
+    <td style="background-color: #00ff00;">5</td> 
+    <td style="background-color: #00ff00;">4</td> 
+    <td style="background-color: #00ff00;">3</td> 
+    <td style="background-color: #00ff00;">2</td> 
+    <td style="background-color: #00ff00;">1</td>
+    <td style="background-color: #00ff00;">0</td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td>PP4</td>
+</tr>
+<tr>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td style="background-color: #ff0000;">$</td>
+    <td style="background-color: #ff0000;">$</td>
+    <td style="background-color: #00ff00;">17</td>
+    <td style="background-color: #00ff00;">16</td> 
+    <td style="background-color: #00ff00;">15</td> 
+    <td style="background-color: #00ff00;">14</td> 
+    <td style="background-color: #00ff00;">13</td> 
+    <td style="background-color: #00ff00;">12</td> 
+    <td style="background-color: #00ff00;">11</td> 
+    <td style="background-color: #00ff00;">10</td> 
+    <td style="background-color: #00ff00;">9</td> 
+    <td style="background-color: #00ff00;">8</td> 
+    <td style="background-color: #00ff00;">7</td> 
+    <td style="background-color: #00ff00;">6</td> 
+    <td style="background-color: #00ff00;">5</td> 
+    <td style="background-color: #00ff00;">4</td> 
+    <td style="background-color: #00ff00;">3</td> 
+    <td style="background-color: #00ff00;">2</td> 
+    <td style="background-color: #00ff00;">1</td>
+    <td style="background-color: #00ff00;">0</td>
+	<td style="background-color: #a0a0a0;"></td>
+	<td style="background-color: #a0a0a0;"></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td>PP5</td>
+</tr>
+<tr>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td style="background-color: #00ff00;">17</td>
+    <td style="background-color: #00ff00;">16</td> 
+    <td style="background-color: #00ff00;">15</td> 
+    <td style="background-color: #00ff00;">14</td> 
+    <td style="background-color: #00ff00;">13</td> 
+    <td style="background-color: #00ff00;">12</td> 
+    <td style="background-color: #00ff00;">11</td> 
+    <td style="background-color: #00ff00;">10</td> 
+    <td style="background-color: #00ff00;">9</td> 
+    <td style="background-color: #00ff00;">8</td> 
+    <td style="background-color: #00ff00;">7</td> 
+    <td style="background-color: #00ff00;">6</td> 
+    <td style="background-color: #00ff00;">5</td> 
+    <td style="background-color: #00ff00;">4</td> 
+    <td style="background-color: #00ff00;">3</td> 
+    <td style="background-color: #00ff00;">2</td> 
+    <td style="background-color: #00ff00;">1</td>
+    <td style="background-color: #00ff00;">0</td>
+	<td style="background-color: #a0a0a0;"></td>
+	<td style="background-color: #a0a0a0;"></td>
+	<td style="background-color: #a0a0a0;"></td>
+	<td style="background-color: #a0a0a0;"></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td>PP6</td>
+</tr>
+<tr>
+    <td style="background-color: #ff0000;">$</td>
+    <td style="background-color: #ff0000;">$</td>
+    <td style="background-color: #0000ff;">17</td>
+    <td style="background-color: #0000ff;">16</td> 
+    <td style="background-color: #0000ff;">15</td> 
+    <td style="background-color: #0000ff;">14</td> 
+    <td style="background-color: #0000ff;">13</td> 
+    <td style="background-color: #0000ff;">12</td> 
+    <td style="background-color: #0000ff;">11</td> 
+    <td style="background-color: #0000ff;">10</td> 
+    <td style="background-color: #0000ff;">9</td> 
+    <td style="background-color: #0000ff;">8</td> 
+    <td style="background-color: #0000ff;">7</td> 
+    <td style="background-color: #0000ff;">6</td> 
+    <td style="background-color: #0000ff;">5</td> 
+    <td style="background-color: #0000ff;">4</td> 
+    <td style="background-color: #0000ff;">3</td> 
+    <td style="background-color: #0000ff;">2</td> 
+    <td style="background-color: #0000ff;">1</td>
+    <td style="background-color: #0000ff;">0</td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td>PP7</td>
+</tr>
+<tr>
+    <td style="background-color: #0000ff;">17</td>
+    <td style="background-color: #0000ff;">16</td> 
+    <td style="background-color: #0000ff;">15</td> 
+    <td style="background-color: #0000ff;">14</td> 
+    <td style="background-color: #0000ff;">13</td> 
+    <td style="background-color: #0000ff;">12</td> 
+    <td style="background-color: #0000ff;">11</td> 
+    <td style="background-color: #0000ff;">10</td> 
+    <td style="background-color: #0000ff;">9</td> 
+    <td style="background-color: #0000ff;">8</td> 
+    <td style="background-color: #0000ff;">7</td> 
+    <td style="background-color: #0000ff;">6</td> 
+    <td style="background-color: #0000ff;">5</td> 
+    <td style="background-color: #0000ff;">4</td> 
+    <td style="background-color: #0000ff;">3</td> 
+    <td style="background-color: #0000ff;">2</td> 
+    <td style="background-color: #0000ff;">1</td>
+    <td style="background-color: #0000ff;">0</td>
+    <td style="background-color: #a0a0a0;"></td>
+    <td style="background-color: #a0a0a0;"></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td>PP8</td>
+</tr>
+<tr>
+    <td style="background-color: #0000ff;">15</td> 
+    <td style="background-color: #0000ff;">14</td> 
+    <td style="background-color: #0000ff;">13</td> 
+    <td style="background-color: #0000ff;">12</td> 
+    <td style="background-color: #0000ff;">11</td> 
+    <td style="background-color: #0000ff;">10</td> 
+    <td style="background-color: #0000ff;">9</td> 
+    <td style="background-color: #0000ff;">8</td> 
+    <td style="background-color: #0000ff;">7</td> 
+    <td style="background-color: #0000ff;">6</td> 
+    <td style="background-color: #0000ff;">5</td> 
+    <td style="background-color: #0000ff;">4</td> 
+    <td style="background-color: #0000ff;">3</td> 
+    <td style="background-color: #0000ff;">2</td> 
+    <td style="background-color: #0000ff;">1</td>
+    <td style="background-color: #0000ff;">0</td>
+    <td style="background-color: #a0a0a0;"></td>
+    <td style="background-color: #a0a0a0;"></td>
+    <td style="background-color: #a0a0a0;"></td>
+    <td style="background-color: #a0a0a0;"></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td>PP9</td>
+</tr>
+</table>
+
